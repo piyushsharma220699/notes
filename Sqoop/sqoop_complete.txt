@@ -1,0 +1,189 @@
+##########################  SQOOP  ###########################
+#Firstly, we're supposed to start the mysql server on our VM
+
+$ sudo service mysqld start 
+
+$ mysql -uroot -p
+password: root
+
+#Second, write these commands in the mysql> shell to create tables from which we can fetch the data using sqoop.
+
+mysql> use training_db;
+
+#Now, create tables in mysql database
+
+mysql> CREATE TABLE topten(
+   customer_id INT NOT NULL ,
+   fname VARCHAR(40) NOT NULL,
+   lname VARCHAR(40) NOT NULL,
+   age int NOT NULL,
+   profession VARCHAR(40) NOT NULL,
+   amount double NOT NULL
+   );
+
+mysql> CREATE TABLE student_master(
+   student_id INT NOT NULL AUTO_INCREMENT,
+   name VARCHAR(40) NOT NULL,
+   address VARCHAR(40) NOT NULL,
+   PRIMARY KEY ( student_id ));
+
+mysql> CREATE TABLE fy(
+   fy_id INT NOT NULL AUTO_INCREMENT,
+   student_id INT NOT NULL,
+   result double NOT NULL,
+   PRIMARY KEY (fy_id ));
+
+#Check if the tables were made properly!
+
+mysql> show tables;
+mysql> describe student_master;
+
+#Now, insert values in the tables.
+
+mysql> INSERT INTO student_master (name, address)
+     VALUES ("Sanjay", "Bangalore");
+
+mysql> INSERT INTO student_master (name, address)
+     VALUES ("Rajiv", "Delhi");
+
+mysql> INSERT INTO student_master (name, address)
+     VALUES ("Rajesh", "Chennai");
+
+mysql> INSERT INTO student_master (name, address)
+     VALUES ("Sandeep", "Delhi");
+
+
+
+mysql> INSERT INTO fy (student_id, result)
+     VALUES (1, 81.90);
+mysql> INSERT INTO fy (student_id, result)
+     VALUES (2, 78.90);
+
+
+
+mysql> INSERT INTO topten (customer_id,fname,lname,age,profession, amount)
+VALUES (4009485,'Stuart','House',58,'Teacher',1943.85);
+
+mysql> INSERT INTO topten (customer_id,fname,lname,age,profession, amount)
+VALUES (4006425,'Joe','Burns',30,'Economist',1732.09);
+
+
+## Now, we are supposed to fetch the data from this server by our Sqoop into HDFS
+
+LIST DATABASES
+-------------
+//sqoop list-databases --connect IP_Address_of_Server --username Username_Credential --password Password_Credential
+
+[hduser@ubuntu ~]$ sqoop list-databases --connect jdbc:mysql://localhost --username root --password 'root';
+
+
+LIST TABLES in a database
+--------------------------
+//sqoop list-tables --connect IP_Address_of_Server/DB_Name --username Username_Credential password Password_Credential
+
+[hduser@ubuntu ~]$ sqoop list-tables --connect jdbc:mysql://127.0.0.1/training_db --username root --password 'root';
+
+
+Import one table (with key)from mysql into HDFS
+------------------------------------------------
+//sqoop import --connect IP_Address_of_Server/DB_Name --username User_Credential --password User_Credential --table Table_Name --target-dir HDFS_Directory_Path
+
+[hduser@ubuntu ~]$ sqoop import --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table student_master --target-dir intel/student2;
+
+//By default, for a sqoop import having a primary key, the number of mappers used to map this is 4, the data is split into 4 files and then imported, you will see 4 output files present
+//Thus, if we have 100 rec, nearly 25 rec will be processed by every mapper and at the end 4 outputs of mapper will be there.
+//part-m-00000 to part-m-00004
+
+//However, if the table is having no primary key, there can be only one mapper, we need to manually give mappers=1 in that case as given below
+
+Import one table (without primary key) from mysql into HDFS
+-----------------------------------------------------------
+[hduser@ubuntu ~]$ sqoop import --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table user_log --target-dir intel/userlog -m 1;
+
+
+INCREMENTAL IMPORT
+-------------------
+#Now, to check incremental approach, add an extra record in mysql> in training_db
+
+mysql> INSERT INTO student_master (name, address)
+	VALUES ("Hari", "Hyderabad");
+
+//Now, to give an incremental import, we can give the same directory as previous, it will append the others in a new file i.e. part-m-00004
+
+[hduser@ubuntu ~]$ sqoop import --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table student_master --check-column student_id --incremental append --last-value 4 --target-dir intel/student2;
+
+
+WITH WHERE CLAUSE
+-----------------
+[hduser@ubuntu ~]$ sqoop import --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table student_master --where 'student_id < 3' --target-dir intel/query -m 1;
+
+
+WITH COLUMN CLAUSE
+------------------
+[hduser@ubuntu ~]$ sqoop import --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table customers --columns "customer_fname,customer_lname"  --target-dir ust/query51 -m 1;
+
+
+WITH QUERY
+-----------
+[hduser@ubuntu ~]$ sqoop import --connect jdbc:mysql://localhost/training_db --username root --password 'root' --query ' select name, address, result from student_master a join fy b on a.student_id=b.student_id where $CONDITIONS '  --target-dir intel/query1 -m 1;
+
+//To import the data using QUERY technique, it is MANDATORY to give the "WHERE $CONDITIONS" part
+//If you already have a WHERE clause in query, use AND clause to club both. Eg: WHERE ID>3 AND $CONDITIONS
+//If there is no WHERE $CONDITIONS clause, it will give ERROR
+
+
+Import all tables from mysql into hdfs      
+--------------------------------------
+[hduser@ubuntu ~]$ sqoop import-all-tables --connect jdbc:mysql://localhost/training_db --username root --password 'root' --warehouse-dir intel/all_tables -m 1;
+
+//This will basically create a directory named all_tables, in which there will be a lot of directories with the name equal to name of table in RDBMS
+//In every directory, there will be a file part-m-00000 in which all the data will be there(as we used -m 1, else there would have been 4 in each directory)
+//-m 1 is used as there are some tables where primary key is not assigned
+
+
+#This completely shows how we can IMPORT a table from a RDBMS to HDFS
+#Now, to EXPORT it from HDFS to RDBMS, we do the folloing:
+
+
+SQOOP EXPORT COMMAND
+--------------------
+
+#Now, here we are supposed to firstly create some flat files in our HDFS, which we will then export to RDBMS using Sqoop
+
+############################################
+[hduser@ubuntu ~]$ gedit /home/training/Documents/sqoop_class/employee.txt
+
+1201,satish,delhi
+1202,krishna,mumbai
+1203,amith,pune
+1204,javed,chennai
+1205,prudvi,bangalore
+
+[hduser@ubuntu ~]$ hadoop fs -put employee.txt intel/sqoop_class
+###########################################
+[hduser@ubuntu ~]$ gedit /home/training/Documents/sqoop_class/emp1.txt
+
+1201,satish1,delhi
+1202,krishna1,mumbai
+1206,sanjay,pune
+1207,rajiv,chennai
+1208,vijay,bangalore
+
+[hduser@ubuntu ~]$ hadoop fs -put emp1.txt intel/sqoop_class
+###########################################
+
+#Now, to put this data that is right now in HDFS to RDBMS using Sqoop, we are supposed to create a table in RDBMS which can hold these values
+#So, create the below table employee_master in mysql
+
+mysql> CREATE TABLE employee_master(
+   employee_id INT NOT NULL AUTO_INCREMENT,
+   name VARCHAR(40) NOT NULL,
+   address VARCHAR(40) NOT NULL,
+   PRIMARY KEY ( employee_id ));
+
+
+Now, ultimately we're supposed to run the following commands to export: 
+[hduser@ubuntu ~]$ sqoop export --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table employee_master --update-mode  allowinsert --update-key employee_id   --export-dir intel/sqoop_class/employee.txt --input-fields-terminated-by ',' ;
+
+[hduser@ubuntu ~]$ sqoop export --connect jdbc:mysql://localhost/training_db --username root --password 'root' --table employee_master --update-mode  allowinsert --update-key employee_id   --export-dir intel/sqoop_class/emp1.txt --input-fields-terminated-by ',' ;
+
