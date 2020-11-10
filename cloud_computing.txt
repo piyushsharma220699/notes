@@ -1,0 +1,6 @@
+Lab Work:
+
+1. Install Android in Virtual Box
+
+-> https://www.howtogeek.com/164570/how-to-install-android-in-virtualbox/
+-> https://drive.google.com/file/d/1MhxgbMjPHc1-FINvjfVSiS2mQbsFwD0r/view
